@@ -1,4 +1,4 @@
-# toy_example
+# treeclimbR_toy_example
 
 A [workflowr][] project.
 

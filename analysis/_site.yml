@@ -1,7 +1,7 @@
-name: "toy_example"
+name: treeclimbR_toy_example
 output_dir: ../docs
 navbar:
-  title: "toy_example"
+  title: treeclimbR_toy_example
   left:
   - text: Home
     href: index.html
