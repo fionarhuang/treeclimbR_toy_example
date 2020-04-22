@@ -1,0 +1,303 @@
+---
+title: "Toy example with 18 DA leaves"
+author: "fionarhuang"
+date: "2020-03-15"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
+```
+
+# Load packages
+
+
+```{r}
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(ggtree)
+  library(dplyr)
+  library(treeclimbR)  
+  library(TreeSummarizedExperiment)
+  library(ape)
+  library(cowplot)
+  library(scales)
+  library(TreeHeatmap)
+  library(gganimate)
+})
+```
+
+
+# Data simulation
+
+A random tree.
+```{r}
+set.seed(2020)
+n <- 100
+tr <- rtree(n)
+```
+
+```{r}
+# generate a random probability vector for leaves
+p <- runif(n = n, 0, 1)
+p <- p/sum(p)
+names(p) <- tr$tip.label
+```
+
+Here, some leaves are selected to have differences between groups. 
+```{r}
+# Leaves are selected from the same branch to simplify the visualtion later (e.g., zoom in)
+df <- selNode(pr = p, tree = tr, all = TRUE)
+nd <- df %>%
+  filter(numTip > 20 & numTip < 30) %>%
+  top_n(1) %>%
+  select(nodeNum) %>%
+  unlist()
+
+# random select 18 leaves from the branch
+m <- 18
+lf <- unlist(findOS(tree = tr, node = nd, only.leaf = TRUE))
+lfs <- sample(lf, size = m, replace = FALSE)
+lfs <- transNode(tree = tr, node = lfs)
+```
+
+
+```{r}
+
+# samples in two groups
+nSam <- c(15, 15)
+gr <- rep(LETTERS[1:2], nSam)
+
+# fold change
+fc <- 2
+
+# counts
+count <- rmultinom(n = sum(nSam), size = 500, prob = p)
+rownames(count) <- names(p)
+
+# multiply counts of selected leaves with 3 in the first group
+count[lfs, seq_len(nSam[1])] <- count[lfs, nSam[1]+seq_len(nSam[1])]*fc
+colnames(count) <- paste(gr, seq_len(sum(nSam)), sep = "_")
+
+```
+
+
+The tree and count table are stored as a `TSE` object.
+```{r}
+# build TSE
+lse <- TreeSummarizedExperiment(assays = list(count),
+                                colData = data.frame(group = gr),
+                                rowTree = tr)
+```
+
+
+## Viz DA
+
+
+```{r}
+
+# color branch
+nds <- signalNode(tree = tr, node = lfs)
+br <- unlist(findOS(tree = tr, node = nds,
+                    only.leaf = FALSE, self.include = TRUE))
+df_color <- data.frame(node = showNode(tree = tr, only.leaf = FALSE)) %>%
+  mutate(signal = ifelse(node %in% br, "YES", "NO"))
+fig_0 <- ggtree(tr = tr, layout = "rectangular", 
+              branch.length = "none", 
+              aes(color = signal)) %<+% df_color +
+  scale_color_manual(values = c("NO" = "grey", "YES" = "orange"))
+fig_1 <- scaleClade(fig_0, node = nd, scale = 2.5)
+
+# counts
+count <- assays(lse)[[1]]
+
+# scale counts
+scale_count <- t(apply(count, 1, FUN = function(x) {
+    xx <- x
+    rx <- (max(xx)-min(xx))
+    (xx - min(xx))/max(rx, 1)
+}))
+rownames(scale_count) <- rownames(count)
+colnames(scale_count) <- colnames(count)
+
+
+# fig: tree + heatmap
+vv <- gsub(pattern = "_.*", "", colnames(count))
+names(vv) <- colnames(scale_count)
+fig <- TreeHeatmap(tree = tr, tree_fig = fig_1, hm_data = scale_count,
+                   column_split = vv, rel_width = 0.8, tree_hm_gap = 0.3) +
+    scale_fill_viridis_c(option = "B")
+fig
+```
+
+
+# Data aggregation
+
+```{r}
+all_node <- showNode(tree = tr, only.leaf = FALSE)
+tse <- aggValue(x = lse, rowLevel = all_node, FUN = sum)
+```
+
+
+# DA test (wilcoxon sum rank test)
+```{r}
+# wilcox.test
+test.func <- function(X, Y) {  
+    Y <- as.numeric(factor(Y))
+    obj <- apply(X, 1, function(x) {                
+        p.value <- suppressWarnings(wilcox.test(x ~ Y)$p.value)
+        e.sign <- sign(mean(x[Y == 2]) - mean(x[Y == 1]))
+        c(p.value, e.sign)          
+    })
+    return(list(p.value=obj[1, ], e.sign=obj[2, ])) 
+}
+Y <- colData(tse)$group
+X <- assays(tse)[[1]]
+resW <- test.func(X,Y)
+outW <- data.frame(node = rowLinks(tse)$nodeNum,
+                   pvalue = resW$p.value,
+                   sign = resW$e.sign)
+```
+
+# run `treeclimbR`
+```{r}
+# get candidates
+cand <- getCand(tree = rowTree(tse), score_data = outW, 
+                node_column = "node", p_column = "pvalue",
+                threshold = 0.05,
+                sign_column = "sign", message = TRUE)
+
+
+```
+
+
+```{r}
+# evaluate candidates
+best <- evalCand(tree = tr, levels = cand$candidate_list, 
+                 score_data = outW, node_column = "node",
+                 p_column = "pvalue", sign_column = "sign")
+infoCand(object = best)
+
+outB <- topNodes(object = best, n = Inf, p_value = 0.05)
+
+```
+
+# Results
+
+## Candidates
+```{r}
+# number of nodes in each candidate
+candL <- cand$candidate_list
+unlist(lapply(candL, length))
+```
+
+```{r message = FALSE, warning = FALSE, results = FALSE, eval= TRUE}
+# tree
+leaf <- showNode(tree = tr, only.leaf = TRUE)
+nleaf <- length(leaf)
+
+# the candidate list
+t <- names(candL)
+nt <- length(candL)
+mm <- matrix(NA, nrow = nleaf, ncol = nt)
+colnames(mm) <- paste("row_", seq_len(nt), sep = "")
+
+#
+path <- matTree(tree = tr)
+r1 <- lapply(leaf, FUN = function(x) {
+    which(path == x, arr.ind = TRUE)[, "row"]
+})
+
+for (j in seq_len(nt)) {
+    rj <- lapply(candL[[j]], FUN = function(x) {
+        which(path == x, arr.ind = TRUE)[, "row"]
+    })
+    
+    for (i in seq_len(nleaf)) {
+        # leaf i: which row of `path`   
+        ni <- r1[[i]]
+        ul <- lapply(rj, FUN = function(x) {
+            any(ni %in% x)
+        })
+        
+        # the ancestor of leaf i: which node in candidate j
+        ll <- which(unlist(ul))
+        if (length(ll) == 1) {
+            mm[i, j] <- ll
+        }
+    }}
+
+
+nn <- lapply(seq_len(ncol(mm)), FUN = function(x) {
+    mx <- mm[, x]
+    xx <- candL[[x]][mx]
+    cbind.data.frame(xx, rep(t[x], length(xx)), 
+                     stringsAsFactors = FALSE)
+})
+
+df <- do.call(rbind.data.frame, nn)
+colnames(df) <- c("node", "threshold")
+head(df)
+
+pd <- df %>%
+    left_join(y = fig_1$data, by = "node") %>%
+    select(threshold, x, y) %>%
+    mutate(t = factor(threshold, levels = c("leaf", setdiff(t, "leaf"))))
+
+
+
+gif_signal <- fig + 
+    geom_point(data = pd, aes(x, y),
+               color = "navy", size = 4) +
+    theme(plot.title = element_text(size = 25)) +
+    transition_states(states = t, 
+                      state_length = 8,
+                      transition_length = 2,
+                      wrap = FALSE) +
+    shadow_wake(wake_length = 0.1, alpha = FALSE, 
+                wrap = FALSE) +
+    labs(title = "t = {closest_state}") +
+    enter_fade() +
+    exit_fade()
+
+anim_save("output/gif_signal_example.gif", gif_signal, height = 800, width = 800)
+```
+![](../output/gif_signal_example.gif)
+
+## Detected nodes by treeclimbR
+Nodes that are detected to have different values (signal) between two groups are labeled as red points. Branches that truly have signal are colored in orange.
+
+```{r}
+# detected nodes
+(loc <- outB$node)
+
+
+fig +
+  geom_point2(aes(subset = node %in% loc), color = "red")
+
+```
+
+## Nodes detected by BH
+
+```{r}
+leaf <- showNode(tree = tr, only.leaf = TRUE)
+loc.bh <- outW %>% 
+  filter(node %in% leaf) %>%
+  mutate(p_adj = p.adjust(pvalue, method = "BH")) %>%
+  filter(p_adj <= 0.05) %>%
+  select(node) %>%
+  unlist()
+
+loc.bh
+
+
+fig +
+  geom_point2(aes(subset = node %in% loc.bh), color = "red")
+
+```
+
+
+
+
