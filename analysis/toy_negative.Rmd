@@ -133,7 +133,7 @@ candL <- cand$candidate_list
 unlist(lapply(candL, length))
 ```
 
-```{r message = FALSE, warning = FALSE, results = FALSE, eval= TRUE}
+```{r message = FALSE, warning = FALSE, results = FALSE, eval= FALSE}
 # tree
 leaf <- showNode(tree = tr, only.leaf = TRUE)
 nleaf <- length(leaf)
