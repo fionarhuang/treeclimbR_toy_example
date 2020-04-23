@@ -6,9 +6,9 @@ navbar:
   - text: Home
     href: index.html
   - text: Example 1
-    href: toy_negative.html
-  - text: Example 2
     href: toy_signal.html
+  - text: Example 2
+    href: toy_negative.html
   right:
   - text: Robinson Lab
     href: https://robinsonlabuzh.github.io
