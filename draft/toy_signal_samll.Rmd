@@ -1,0 +1,260 @@
+---
+title: "Toy example"
+author: "fionarhuang"
+date: "2020-03-15"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
+```
+
+# Load packages
+
+
+```{r}
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(ggtree)
+  library(dplyr)
+  library(treeclimbR)  
+  library(TreeSummarizedExperiment)
+  library(ape)
+  library(cowplot)
+  library(scales)
+  library(TreeHeatmap)
+})
+```
+
+
+# Data simulation
+```{r}
+set.seed(1)
+n <- 50
+tr <- rtree(n)
+
+# generate a random probility vector  for leaves
+p <- runif(n = n, 0, 1)
+p <- p/sum(p)
+names(p) <- tr$tip.label
+```
+
+```{r}
+df <- selNode(pr = p, tree = tr, all = TRUE)
+
+# signal is limited on this branch to simplify the visualtion (zoom in)
+nd <- c(68, 89)
+# leaves
+lf <- findOS(tree = tr, node = nd, only.leaf = TRUE)
+lapply(lf, length)
+
+# random select 6 leaves 
+m <- 6
+lfs <- c(lf[[1]], sample(lf[[2]], size = m, replace = FALSE))
+lfs <- transNode(tree = tr, node = lfs)
+```
+
+
+```{r}
+nSam <- c(20, 20)
+
+# group
+gr <- rep(LETTERS[1:2], nSam)
+
+# fold change
+fc <- 3
+
+# counts
+set.seed(2)
+count <- rmultinom(n = sum(nSam), size = 500, prob = p)
+rownames(count) <- names(p)
+
+# multiply counts of randomly selected 25 leaves with 3 in first group
+count[lfs, seq_len(nSam[1])] <- count[lfs, nSam[1]+seq_len(nSam[1])]*fc
+colnames(count) <- paste(gr, seq_len(sum(nSam)), sep = "_")
+
+# build TSE
+lse <- TreeSummarizedExperiment(assays = list(count),
+                                colData = data.frame(group = gr),
+                                rowTree = tr)
+
+
+```
+
+# Data visualization
+
+
+```{r}
+
+# color branch
+nds <- signalNode(tree = tr, node = lfs)
+br <- unlist(findOS(tree = tr, node = nds,
+                    only.leaf = FALSE, self.include = TRUE))
+df_color <- data.frame(node = showNode(tree = tr, only.leaf = FALSE)) %>%
+  mutate(signal = ifelse(node %in% br, "YES", "NO"))
+fig0 <- ggtree(tr = tr, layout = "rectangular", 
+              branch.length = "none", 
+              aes(color = signal)) %<+% df_color +
+  scale_color_manual(values = c("NO" = "black", "YES" = "orange"))
+
+# counts
+count <- assays(lse)[[1]]
+
+# scale counts
+scale_count <- t(apply(count, 1, FUN = function(x) {
+    xx <- x
+    rx <- (max(xx)-min(xx))
+    (xx - min(xx))/max(rx, 1)
+}))
+rownames(scale_count) <- rownames(count)
+colnames(scale_count) <- colnames(count)
+head(scale_count)
+
+
+
+# fig: tree + heatmap
+vv <- gsub(pattern = "_.*", "", colnames(count))
+names(vv) <- colnames(scale_count)
+fig <- TreeHeatmap(tree = tr, tree_fig = fig0, hm_data = scale_count,
+                   column_split = vv, rel_width = 0.8, tree_hm_gap = 0.3) +
+    scale_fill_viridis_c(option = "B")+
+  theme(legend.position = "none")
+fig
+ggsave(filename = "output/toy_signal.png", fig)
+```
+
+
+# Data aggregation
+
+```{r}
+all_node <- showNode(tree = tr, only.leaf = FALSE)
+tse <- aggValue(x = lse, rowLevel = all_node, FUN = sum)
+```
+
+
+# Differential abundance test (wilcox sum rank test)
+```{r}
+# wilcox.test
+test.func <- function (X, Y) {  
+    Y <- as.numeric(factor(Y))
+    obj <- apply(X, 1, function(x) {                
+        p.value <- suppressWarnings(wilcox.test(x ~ Y)$p.value)
+        e.sign <- sign(mean(x[Y == 2]) - mean(x[Y == 1]))
+        c(p.value, e.sign)          
+    })
+    return(list(p.value=obj[1, ], e.sign=obj[2, ])) 
+}
+Y <- colData(tse)$group
+X <- assays(tse)[[1]]
+resW <- test.func(X,Y)
+outW <- data.frame(node = rowLinks(tse)$nodeNum,
+                   pvalue = resW$p.value,
+                   sign = resW$e.sign)
+
+hist(outW$pvalue, freq = FALSE)
+hist(outW$pvalue[outW$node <= 1000], freq = FALSE)
+```
+
+# `treeclimbR`
+```{r}
+# get candidates
+cand <- getCand(tree = rowTree(tse), score_data = outW, 
+                node_column = "node", p_column = "pvalue",
+                threshold = 0.05,
+                sign_column = "sign", message = TRUE)
+
+
+```
+
+
+```{r}
+# evaluate candidates
+best <- evalCand(tree = rowTree(tse), levels = cand$candidate_list, 
+                 score_data = outW, node_column = "node",
+                 p_column = "pvalue", sign_column = "sign")
+infoCand(object = best)
+
+# detected nodes
+outB <- topNodes(object = best, n = Inf, p_value = 0.05)
+loc <- outB$node
+loc
+```
+
+# Viz
+
+## Results
+
+Nodes that are detected to have different values (signal) between two groups are labeled as red points. Branches that truly have signal are colored in blue.
+
+```{r}
+# color branch
+nds <- signalNode(tree = tr, node = lfs)
+br <- unlist(findOS(tree = tr, node = nds,
+                    only.leaf = FALSE, self.include = TRUE))
+df_color <- data.frame(node = showNode(tree = tr, only.leaf = FALSE)) %>%
+  mutate(signal = ifelse(node %in% br, "YES", "NO"))
+fig <- ggtree(tr = tr, layout = "rectangular", 
+              branch.length = "none", 
+              aes(color = signal)) %<+% df_color +
+  scale_color_manual(values = c("NO" = "grey40", "YES" = "orange"))
+fig +
+  geom_point2(aes(subset = node %in% loc), color = "red")
+```
+
+
+## Candidates
+```{r, include = FALSE}
+candL <- cand$candidate_list
+unlist(lapply(candL, length))
+
+figL <- lapply(seq_along(candL), FUN = function(x) {
+cand.x <- candL[[x]]
+fig.x <- fig +
+  geom_point2(aes(subset = (node %in% cand.x)), color = "red", size = 2) +
+  labs(title = names(candL)[x]) +
+  theme(legend.position = "none")
+  print(fig.x)
+})
+
+```
+
+
+```{r, fig.height= 8}
+legend <- get_legend(fig)
+plot_grid(plotlist = c(figL, list(legend)), nrow = 2)
+ggsave(filename = "output/toy_cand_small.png", 
+       width = 18, height = 8, units = "in")
+```
+
+
+## Multiplicity correction on each candidate
+```{r, include = FALSE}
+candL <- cand$candidate_list
+nodL <- lapply(candL, FUN = function(x){
+  xx <- outW[outW$node %in% x, ]
+  xx$adjP <- p.adjust(p = xx$pvalue, method = "BH")
+  xx$node[xx$adjP <=0.05]
+})
+
+figS <- lapply(seq_along(candL), FUN = function(x) {
+nod.x <- nodL[[x]]
+fig.x <- fig +
+  geom_point2(aes(subset = (node %in% nod.x)), color = "blue", size = 2) +
+  labs(title = names(candL)[x]) +
+  theme(legend.position = "none")
+  print(fig.x)
+})
+
+```
+
+
+```{r, fig.height= 8}
+legend <- get_legend(fig)
+plot_grid(plotlist = c(figS, list(legend)), nrow = 2)
+ggsave(filename = "output/toy_cand_small_res.png", 
+       width = 18, height = 8, units = "in")
+```
+
+

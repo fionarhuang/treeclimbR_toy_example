@@ -1,5 +1,5 @@
 ---
-title: "Toy example with 18 DA leaves"
+title: "Toy example with 25 DA leaves"
 author: "fionarhuang"
 date: "2020-03-15"
 output: workflowr::wflow_html
@@ -56,8 +56,8 @@ nd <- df %>%
   select(nodeNum) %>%
   unlist()
 
-# random select 18 leaves from the branch
-m <- 18
+# random select 25 leaves from the branch
+m <- 25
 lf <- unlist(findOS(tree = tr, node = nd, only.leaf = TRUE))
 lfs <- sample(lf, size = m, replace = FALSE)
 lfs <- transNode(tree = tr, node = lfs)
@@ -67,14 +67,14 @@ lfs <- transNode(tree = tr, node = lfs)
 ```{r}
 
 # samples in two groups
-nSam <- c(15, 15)
+nSam <- c(20, 20)
 gr <- rep(LETTERS[1:2], nSam)
 
 # fold change
-fc <- 2
+fc <- 3
 
 # counts
-count <- rmultinom(n = sum(nSam), size = 500, prob = p)
+count <- rmultinom(n = sum(nSam), size = 1000, prob = p)
 rownames(count) <- names(p)
 
 # multiply counts of selected leaves with 3 in the first group
@@ -107,7 +107,7 @@ df_color <- data.frame(node = showNode(tree = tr, only.leaf = FALSE)) %>%
 fig_0 <- ggtree(tr = tr, layout = "rectangular", 
               branch.length = "none", 
               aes(color = signal)) %<+% df_color +
-  scale_color_manual(values = c("NO" = "grey", "YES" = "orange"))
+  scale_color_manual(values = c("NO" = "grey", "YES" = "blue"))
 fig_1 <- scaleClade(fig_0, node = nd, scale = 2.5)
 
 # counts
@@ -262,9 +262,33 @@ gif_signal <- fig +
     enter_fade() +
     exit_fade()
 
-anim_save("output/gif_signal_example.gif", gif_signal, height = 800, width = 800)
+anim_save("output/gif_signal.gif", gif_signal, height = 800, width = 800)
 ```
-![](../output/gif_signal_example.gif)
+![](../output/gif_signal.gif)
+
+Supplenmentary figure 8 of the `treeclimbR` manuscript: 
+```{r}
+candL <- cand$candidate_list
+unlist(lapply(candL, length))
+
+figL <- lapply(seq_along(candL), FUN = function(x) {
+cand.x <- candL[[x]]
+fig.x <- fig_1 +
+  geom_point2(aes(subset = (node %in% cand.x)), color = "red", size = 0.5) +
+  labs(title = names(candL)[x]) +
+  theme(legend.position = "none",
+        plot.title = element_text(color="red", size=7, 
+                                  hjust = 0.5, vjust = -0.1))
+  print(fig.x)
+})
+
+legend <- get_legend(fig_1)
+plot_grid(plotlist = c(figL, list(legend)), nrow = 3,
+          labels = paste0(letters[seq_along(candL)], "."), 
+          label_size = 9, label_y = 0.99)
+ggsave(filename = "output/Supplementary_toy_cand.eps", 
+       width = 8, height = 8, units = "in")
+```
 
 ## Detected nodes by treeclimbR
 Nodes that are detected to have different values (signal) between two groups are labeled as red points. Branches that truly have signal are colored in orange.
@@ -279,24 +303,8 @@ fig +
 
 ```
 
-## Nodes detected by BH
-
-```{r}
-leaf <- showNode(tree = tr, only.leaf = TRUE)
-loc.bh <- outW %>% 
-  filter(node %in% leaf) %>%
-  mutate(p_adj = p.adjust(pvalue, method = "BH")) %>%
-  filter(p_adj <= 0.05) %>%
-  select(node) %>%
-  unlist()
-
-loc.bh
 
 
-fig +
-  geom_point2(aes(subset = node %in% loc.bh), color = "red")
-
-```
 
 
 
