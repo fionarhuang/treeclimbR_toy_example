@@ -1,18 +1,19 @@
 name: treeclimbR_toy_example
 output_dir: ../docs
 navbar:
-  title: treeclimbR_toy_example
+  title: Toy Examples
   left:
   - text: Home
     href: index.html
-  - text: About
-    href: about.html
-  - text: License
-    href: license.html
+  - text: Example 1
+    href: toy_negative.html
+  - text: Example 2
+    href: toy_signal.html
   right:
+  - text: Robinson Lab
+    href: https://robinsonlabuzh.github.io
   - icon: fa-github
-    text: Source code
-    href: https://github.com/fionarhuang/treeclimbR_toy_example
+    href: https://github.com/fionarhuang/treeclimbR_article
 output:
   workflowr::wflow_html:
     toc: yes

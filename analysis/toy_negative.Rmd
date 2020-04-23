@@ -11,7 +11,7 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
 ```
 
-# Load packages
+# Data simulation
 
 
 ```{r}
@@ -31,7 +31,6 @@ suppressPackageStartupMessages({
 ```
 
 
-# Data simulation
 
 A random tree is generated.
 ```{r}
@@ -80,7 +79,9 @@ tse <- aggValue(x = lse, rowLevel = all_node, FUN = sum)
 ```
 
 
-# Differential analysis (wilcoxon sum rank test)
+# Differential analysis 
+
+Wilcoxon sum rank test is run on all nodes.
 ```{r}
 # wilcox.test
 test.func <- function (X, Y) {  
@@ -102,6 +103,7 @@ outW <- data.frame(node = rowLinks(tse)$nodeNum,
 ```
 
 # Run `treeclimbR`
+
 ```{r}
 # get candidates
 cand <- getCand(tree = rowTree(tse), score_data = outW, 
@@ -220,9 +222,8 @@ fig_1 +
 
 ```
 
-# Viz
 
-## Histogram of P-values
+## Histogram of P-values 
 
 ```{r}
 pL <- lapply(seq_along(candL), FUN = function(x) {

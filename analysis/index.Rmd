@@ -8,4 +8,16 @@ editor_options:
   chunk_output_type: console
 ---
 
-Welcome to my research website.
+- [Example 1: negative control](toy_negative.html):
+    - Data simulation
+    - Data aggregation
+    - Differential analysis
+    - Run treeclimbR
+    - Results
+    
+- [Example 2: 18 DA leaves](toy_signal.html):
+    - Data simulation
+    - Data aggregation
+    - Differential analysis
+    - Run treeclimbR
+    - Results
