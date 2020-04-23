@@ -1,5 +1,3 @@
-# treeclimbR_toy_example
+# [treeclimbR_toy_example](https://fionarhuang.github.io/treeclimbR_toy_example/)
 
-A [workflowr][] project.
-
-[workflowr]: https://github.com/jdblischak/workflowr
+ 
