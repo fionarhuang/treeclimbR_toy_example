@@ -1,0 +1,280 @@
+---
+title: "Negative control"
+author: "fionarhuang"
+date: "2020-03-15"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
+```
+
+# Load packages
+
+
+```{r}
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(ggtree)
+  library(dplyr)
+  library(treeclimbR)  
+  library(TreeSummarizedExperiment)
+  library(ape)
+  library(TreeHeatmap)
+  library(ggnewscale)
+  library(wesanderson)
+  library(scales)
+  library(gganimate)
+})
+```
+
+
+# Data simulation
+
+A random tree is generated.
+```{r}
+# random tree
+set.seed(1)
+n <- 1000
+tr <- rtree(n)
+```
+
+A count table is generated with each column sampled from the same distribution. Entities in rows and samples in columns. Samples are assigned to two groups.
+
+```{r}
+
+# generate a random probability of leaves
+p <- runif(n = n, 0, 1)
+p <- p/sum(p)
+names(p) <- tr$tip.label
+
+# group
+nSam <- c(30, 30)
+gr <- rep(LETTERS[1:2], nSam)
+
+# counts
+count <- rmultinom(n = sum(nSam), size = 10000, prob = p)
+rownames(count) <- names(p)
+colnames(count) <- paste(gr, seq_len(sum(nSam)), sep = "_")
+```
+
+The tree and count table are stored as a `TSE` object.
+```{r}
+lse <- TreeSummarizedExperiment(assays = list(count),
+                                colData = data.frame(group = gr),
+                                rowTree = tr)
+
+
+```
+
+
+
+# Data aggregation
+
+```{r}
+# all nodes
+all_node <- showNode(tree = tr, only.leaf = FALSE)
+tse <- aggValue(x = lse, rowLevel = all_node, FUN = sum)
+```
+
+
+# Differential analysis (wilcoxon sum rank test)
+```{r}
+# wilcox.test
+test.func <- function (X, Y) {  
+    Y <- as.numeric(factor(Y))
+    obj <- apply(X, 1, function(x) {                
+        p.value <- suppressWarnings(wilcox.test(x ~ Y)$p.value)
+        e.sign <- sign(mean(x[Y == 2]) - mean(x[Y == 1]))
+        c(p.value, e.sign)          
+    })
+    return(list(p.value=obj[1, ], e.sign=obj[2, ])) 
+}
+Y <- colData(tse)$group
+X <- assays(tse)[[1]]
+resW <- test.func(X,Y)
+outW <- data.frame(node = rowLinks(tse)$nodeNum,
+                   pvalue = resW$p.value,
+                   sign = resW$e.sign)
+
+```
+
+# Run `treeclimbR`
+```{r}
+# get candidates
+cand <- getCand(tree = rowTree(tse), score_data = outW, 
+                node_column = "node", p_column = "pvalue",
+                threshold = 0.05,
+                sign_column = "sign", message = TRUE)
+
+
+```
+
+
+```{r}
+# evaluate candidates
+best <- evalCand(tree = rowTree(tse), levels = cand$candidate_list, 
+                 score_data = outW, node_column = "node",
+                 p_column = "pvalue", sign_column = "sign")
+outB <- topNodes(object = best, n = Inf, p_value = 0.05)
+infoCand(object = best)
+```
+
+# Results
+
+## Candidates
+```{r}
+# number of nodes in each candidate
+candL <- cand$candidate_list
+unlist(lapply(candL, length))
+```
+
+```{r message = FALSE, warning = FALSE, results = FALSE, eval= TRUE}
+# tree
+leaf <- showNode(tree = tr, only.leaf = TRUE)
+nleaf <- length(leaf)
+
+# the candidate list
+t <- names(candL)
+nt <- length(candL)
+mm <- matrix(NA, nrow = nleaf, ncol = nt)
+colnames(mm) <- paste("row_", seq_len(nt), sep = "")
+
+#
+path <- matTree(tree = tr)
+r1 <- lapply(leaf, FUN = function(x) {
+    which(path == x, arr.ind = TRUE)[, "row"]
+})
+
+for (j in seq_len(nt)) {
+    rj <- lapply(candL[[j]], FUN = function(x) {
+        which(path == x, arr.ind = TRUE)[, "row"]
+    })
+    
+    for (i in seq_len(nleaf)) {
+        # leaf i: which row of `path`   
+        ni <- r1[[i]]
+        ul <- lapply(rj, FUN = function(x) {
+            any(ni %in% x)
+        })
+        
+        # the ancestor of leaf i: which node in candidate j
+        ll <- which(unlist(ul))
+        if (length(ll) == 1) {
+            mm[i, j] <- ll
+        }
+    }}
+
+
+nn <- lapply(seq_len(ncol(mm)), FUN = function(x) {
+    mx <- mm[, x]
+    xx <- candL[[x]][mx]
+    cbind.data.frame(xx, rep(t[x], length(xx)), 
+                     stringsAsFactors = FALSE)
+})
+
+df <- do.call(rbind.data.frame, nn)
+colnames(df) <- c("node", "threshold")
+head(df)
+
+fig_1 <- ggtree(tr = tr, layout = "circular", 
+                branch.length = "none", size = 0.3) 
+
+pd <- df %>%
+    left_join(y = fig_1$data, by = "node") %>%
+    select(threshold, x, y) %>%
+    mutate(t = factor(threshold, levels = names(candL)))
+
+
+gif_neg <- fig_1  + 
+    geom_point(data = pd, aes(x, y),
+               color = "navy", size = 4) +
+    theme(plot.title = element_text(size = 25)) +
+    transition_states(states = t, 
+                      state_length = 8,
+                      transition_length = 2,
+                      wrap = FALSE) +
+    shadow_wake(wake_length = 0.1, alpha = FALSE, 
+                wrap = FALSE) +
+    labs(title = "t = {closest_state}") +
+    enter_fade() +
+    exit_fade()
+
+anim_save("output/negative_cands.gif", gif_neg, height = 800, width = 800)
+```
+
+![](../output/negative_cands.gif)
+
+Nodes that are detected to be differential abundant (DA) between two groups are labeled as red points. Here, `treeclimbR` doesn't detect any nodes. 
+
+```{r}
+# detected nodes
+(loc <- outB$node)
+
+fig_1 <- ggtree(tr = tr, layout = "circular", 
+                branch.length = "none", size = 0.3) 
+fig_1 +
+  geom_point2(aes(subset = node %in% loc), color = "red")
+
+```
+
+# Viz
+
+## Histogram of P-values
+
+```{r}
+pL <- lapply(seq_along(candL), FUN = function(x) {
+  p.x <- outW[outW$node %in% candL[[x]], ][["pvalue"]]
+  df.x <- cbind.data.frame(pvalue = p.x, t = names(candL)[x])
+  return(df.x)
+})
+df <- do.call(rbind, pL)
+
+
+ggplot(df, aes(x = pvalue, y = ..density..)) + 
+        geom_histogram(bins = 20, fill = "grey", alpha = 0.8) +
+        geom_density(color = "blue") +
+    facet_wrap(. ~ t, nrow = 6) + 
+        theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+  ylim(0, 1.5)
+
+
+prettify <- theme_bw(base_size = 9) + theme(
+  aspect.ratio = 1,
+  #plot.margin = unit(c(0, 0, 0.2, 0), "cm"),
+  panel.grid = element_blank(),
+  panel.spacing = unit(0, "lines"),
+  axis.text = element_text(color = "black"),
+  axis.text.x = element_text(angle = 45, hjust = 1),
+  legend.key.size= unit(1.5, "mm"),
+  plot.title = element_text(hjust = 0.5),
+  legend.text = element_text(size = 7),
+  legend.position="bottom",
+  legend.margin = margin(0, 0, 0, 0),
+  legend.box.margin=margin(-5,-5,-10,-5),
+  strip.background = element_rect(colour = "black", fill = "gray90"),
+  strip.text.x = element_text(color = "black", size = 8),
+  strip.text.y = element_text(color = "black", size = 8))
+
+pal <- wes_palette("Zissou1", 25, type = "continuous")
+
+fig <- ggplot(df, aes(x= pvalue, group = t, color = t)) + 
+  stat_ecdf(geom = "step") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  scale_color_manual(values = pal) +
+  prettify +
+  labs(y = NULL,
+       title = "CDF of p values on each candidate") +
+  theme(legend.position = "right",
+        legend.key.size= unit(3, "mm"),
+        legend.box.margin=margin(0,0,0,0),
+        axis.text.x = element_text(angle = 0, hjust = 1))
+
+fig
+ggsave(filename = "output/Supplementary_negative_unif.eps", 
+       width = 5, height = 5, units = "in")
+```
+
+
