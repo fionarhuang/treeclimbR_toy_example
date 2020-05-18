@@ -207,7 +207,7 @@ gif_neg <- fig_1  +
 anim_save("output/negative_cands.gif", gif_neg, height = 800, width = 800)
 ```
 
-![](../output/negative_cands.gif)
+![](output/negative_cands.gif)
 
 Nodes that are detected to be differential abundant (DA) between two groups are labeled as red points. Here, `treeclimbR` doesn't detect any nodes. 
 

@@ -272,7 +272,7 @@ anim_save("output/signal_cands.gif", gif_signal,
 
 ```
 
-![](../output/signal_cands.gif)
+![](output/signal_cands.gif)
 
 Candidates are saved as `Supplenmentary Figure 8` of the `treeclimbR` manuscript: 
 ```{r}
