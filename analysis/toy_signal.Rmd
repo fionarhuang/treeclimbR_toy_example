@@ -126,9 +126,16 @@ colnames(scale_count) <- colnames(count)
 # fig: tree + heatmap
 vv <- gsub(pattern = "_.*", "", colnames(count))
 names(vv) <- colnames(scale_count)
-fig <- TreeHeatmap(tree = tr, tree_fig = fig_1, hm_data = scale_count,
-                   column_split = vv, rel_width = 0.6, tree_hm_gap = 0.3) +
-    scale_fill_viridis_c(option = "B")
+anno_c <- vv
+names(anno_c) <- vv
+fig <- TreeHeatmap(tree = tr, tree_fig = fig_1, 
+                   hm_data = scale_count,
+                   column_split = vv, rel_width = 0.6,
+                   tree_hm_gap = 0.3,
+                   column_split_label = anno_c) +
+    scale_fill_viridis_c(option = "B") +
+  scale_y_continuous(expand = c(0, 10))
+  
 fig
 ```
 
@@ -197,7 +204,7 @@ candL <- cand$candidate_list
 unlist(lapply(candL, length))
 ```
 
-```{r message = FALSE, warning = FALSE, results = FALSE, eval= FALSE}
+```{r message = FALSE, warning = FALSE, results = FALSE, eval= TRUE}
 # tree
 leaf <- showNode(tree = tr, only.leaf = TRUE)
 nleaf <- length(leaf)
